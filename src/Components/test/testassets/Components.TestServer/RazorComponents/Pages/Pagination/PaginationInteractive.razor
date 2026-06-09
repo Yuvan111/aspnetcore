@@ -1,0 +1,60 @@
+﻿@page "/pagination-interactive"
+@rendermode RenderMode.InteractiveServer
+@using Microsoft.AspNetCore.Components.QuickGrid
+
+<h3>Sample Pagination Component</h3>
+
+<section class="sample-block">
+	<h4>Simple QuickGrid with pagination</h4>
+
+	<QuickGrid Items="@people" Pagination="@simplePagination">
+		<PropertyColumn Property="@(p => p.PersonId)" Title="ID" Sortable="true" />
+		<PropertyColumn Property="@(p => p.FirstName)" Sortable="true" />
+		<PropertyColumn Property="@(p => p.LastName)" Sortable="true" />
+		<PropertyColumn Property="@(p => p.BirthDate)" Title="Birth date" Format="yyyy-MM-dd" Sortable="true" />
+	</QuickGrid>
+
+	<Paginator State="@simplePagination" />
+</section>
+
+<section class="sample-block">
+	<h4>QuickGrid with custom summary template</h4>
+
+	<QuickGrid Items="@people" Pagination="@summaryPagination">
+		<PropertyColumn Property="@(p => p.PersonId)" Title="ID" Sortable="true" />
+		<PropertyColumn Property="@(p => p.FirstName)" Sortable="true" />
+		<PropertyColumn Property="@(p => p.LastName)" Sortable="true" />
+		<PropertyColumn Property="@(p => p.BirthDate)" Title="Birth date" Format="yyyy-MM-dd" Sortable="true" />
+	</QuickGrid>
+
+	<Paginator State="@summaryPagination">
+        <SummaryTemplate>
+            <span>
+                Showing @(summaryPagination.CurrentPageIndex + 1)
+                of @(summaryPagination.LastPageIndex + 1) pages
+            </span>
+        </SummaryTemplate>
+    </Paginator>
+</section>
+
+@code {
+	private readonly PaginationState simplePagination = new() { ItemsPerPage = 5 };
+	private readonly PaginationState summaryPagination = new() { ItemsPerPage = 5 };
+
+	private readonly IQueryable<Person> people = new[]
+	{
+		new Person(11203, "Julie", "Smith", new DateOnly(1958, 10, 10)),
+		new Person(11205, "Nur", "Sari", new DateOnly(1922, 4, 27)),
+		new Person(11898, "Jose", "Hernandez", new DateOnly(2011, 5, 3)),
+		new Person(10895, "Jean", "Martin", new DateOnly(1985, 3, 16)),
+		new Person(10944, "António", "Langa", new DateOnly(1991, 12, 1)),
+		new Person(12130, "Kenji", "Sato", new DateOnly(2004, 1, 9)),
+		new Person(12238, "Sven", "Ottlieb", new DateOnly(1973, 11, 15)),
+		new Person(12345, "Liu", "Wang", new DateOnly(1999, 6, 30)),
+		new Person(12346, "Giovanni", "Rovelli", new DateOnly(2000, 7, 31)),
+		new Person(12347, "Eduardo", "Martins", new DateOnly(2001, 8, 1)),
+	}.AsQueryable();
+
+	private sealed record Person(int PersonId, string FirstName, string LastName, DateOnly BirthDate);
+}
+
