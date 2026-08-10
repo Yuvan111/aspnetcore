@@ -113,6 +113,77 @@ public abstract class AsyncFormValidationTestBase : ServerTestBase<ToggleExecuti
     }
 
     [Fact]
+    public void AsyncFormValidation_SuccessfulValidation_InvokesValidSubmitExactlyOnceWithoutMessagesOrFault()
+    {
+        var appElement = Browser.MountTestComponent<AsyncValidationComponent>();
+
+        appElement.FindElement(By.Id("submit")).Click();
+
+        Browser.Exists(By.Id("form-pending"));
+        Assert.Empty(appElement.FindElements(By.Id("last-callback")));
+
+        appElement.FindElement(By.Id("release-form")).Click();
+
+        Browser.Equal("OnValidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
+        Browser.Equal("1", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
+        Browser.Equal("0", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
+        Browser.DoesNotExist(By.Id("form-pending"));
+        Browser.DoesNotExist(By.Id("form-faulted"));
+        Browser.Empty(() => appElement.FindElements(By.CssSelector(".validation-message")));
+    }
+
+    [Fact]
+    public void AsyncFormValidation_InvalidResult_ShowsMessageAndInvokesInvalidSubmit()
+    {
+        var appElement = Browser.MountTestComponent<AsyncValidationComponent>();
+        var userNameInput = appElement.FindElement(By.ClassName("user-name")).FindElement(By.TagName("input"));
+
+        userNameInput.SendKeys("reserved\t");
+        appElement.FindElement(By.Id("submit")).Click();
+
+        Browser.Exists(By.Id("form-pending"));
+        Assert.Empty(appElement.FindElements(By.Id("last-callback")));
+
+        appElement.FindElement(By.Id("release-form")).Click();
+
+        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
+        Browser.Equal("0", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
+        Browser.Equal("1", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
+        Browser.DoesNotExist(By.Id("form-pending"));
+        Browser.DoesNotExist(By.Id("form-faulted"));
+        Browser.Equal(new[] { "Username is reserved" }, () => appElement
+            .FindElements(By.CssSelector(".username-message"))
+            .Select(element => element.Text)
+            .ToArray());
+        Browser.Equal(new[] { "Username is reserved" }, () => appElement
+            .FindElements(By.CssSelector("#validation-summary .validation-message"))
+            .Select(element => element.Text)
+            .ToArray());
+    }
+
+    [Fact]
+    public void AsyncFormValidation_ThrowingValidator_MarksFormFaultedAndInvokesInvalidSubmit()
+    {
+        var appElement = Browser.MountTestComponent<AsyncValidationComponent>();
+        var userNameInput = appElement.FindElement(By.ClassName("user-name")).FindElement(By.TagName("input"));
+
+        userNameInput.SendKeys("form-error\t");
+        appElement.FindElement(By.Id("submit")).Click();
+
+        Browser.Exists(By.Id("form-pending"));
+        Assert.Empty(appElement.FindElements(By.Id("last-callback")));
+
+        appElement.FindElement(By.Id("release-form")).Click();
+
+        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
+        Browser.Equal("0", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
+        Browser.Equal("1", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
+        Browser.Exists(By.Id("form-faulted"));
+        Browser.DoesNotExist(By.Id("form-pending"));
+        Browser.Empty(() => appElement.FindElements(By.CssSelector(".validation-message")));
+    }
+
+    [Fact]
     public void AsyncFormValidation_OnSubmit_CancelsPendingFieldValidation()
     {
         // Submitting supersedes any in-flight per-field validation. The pending field task is
@@ -133,6 +204,123 @@ public abstract class AsyncFormValidationTestBase : ServerTestBase<ToggleExecuti
 
         Browser.Equal("OnValidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
         Browser.DoesNotExist(By.Id("form-pending"));
+    }
+
+    [Fact]
+    public void AsyncFormValidation_SubmitWhileFieldValidationPending_DiscardsStaleResultAndRunsFormValidation()
+    {
+        var appElement = Browser.MountTestComponent<AsyncValidationComponent>();
+        var userNameInput = appElement.FindElement(By.ClassName("user-name")).FindElement(By.TagName("input"));
+
+        userNameInput.SendKeys("taken\t");
+        Browser.Exists(By.Id("username-pending"));
+
+        appElement.FindElement(By.Id("submit")).Click();
+
+        Browser.Exists(By.Id("field-cancellation-observed"));
+        Browser.DoesNotExist(By.Id("username-pending"));
+        Browser.Exists(By.Id("form-pending"));
+
+        appElement.FindElement(By.Id("release-field")).Click();
+        Browser.Empty(() => appElement.FindElements(By.ClassName("username-message")));
+
+        appElement.FindElement(By.Id("release-form")).Click();
+
+        Browser.Equal("OnValidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
+        Browser.Equal("1", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
+        Browser.Equal("0", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
+        Browser.DoesNotExist(By.Id("form-pending"));
+        Browser.Empty(() => appElement.FindElements(By.ClassName("username-message")));
+    }
+
+    [Fact]
+    public void AsyncFormValidation_MultipleValidatorsRunConcurrentlyAndCombineMessages()
+    {
+        var appElement = Browser.MountTestComponent<ConcurrentAsyncValidationComponent>();
+
+        appElement.FindElement(By.Id("concurrent-submit")).Click();
+
+        Browser.Exists(By.Id("fast-validator-started"));
+        Browser.Exists(By.Id("slow-validator-started"));
+        Browser.Exists(By.Id("concurrent-form-pending"));
+
+        appElement.FindElement(By.Id("release-fast-validator")).Click();
+
+        Browser.Exists(By.Id("concurrent-form-pending"));
+        Browser.Equal(new[] { "Fast validator completed" }, CreateValidationMessagesAccessor(appElement));
+        Assert.Empty(appElement.FindElements(By.Id("concurrent-last-callback")));
+
+        appElement.FindElement(By.Id("release-slow-validator")).Click();
+
+        Browser.DoesNotExist(By.Id("concurrent-form-pending"));
+        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("concurrent-last-callback")).Text);
+        Browser.Equal(
+            new[] { "Fast validator completed", "Slow validator completed" },
+            CreateValidationMessagesAccessor(appElement));
+    }
+
+    [Fact]
+    public void AsyncFormValidation_CallerCancellation_ThrowsOperationCanceledExceptionAndCleansUpState()
+    {
+        var appElement = Browser.MountTestComponent<CancelableAsyncValidationComponent>();
+
+        appElement.FindElement(By.Id("start-cancelable-validation")).Click();
+
+        Browser.Exists(By.Id("cancelable-validator-started"));
+        Browser.Exists(By.Id("cancelable-validation-pending"));
+        Browser.Equal("False", () => appElement.FindElement(By.Id("cancelable-validation-faulted")).Text);
+
+        appElement.FindElement(By.Id("cancel-cancelable-validation")).Click();
+
+        Browser.Exists(By.Id("cancelable-validator-cancellation-observed"));
+        Browser.Equal("OperationCanceledException", () => appElement.FindElement(By.Id("cancelable-validation-exception")).Text);
+        Browser.DoesNotExist(By.Id("cancelable-validation-pending"));
+        Browser.Equal("False", () => appElement.FindElement(By.Id("cancelable-validation-faulted")).Text);
+    }
+
+    [Fact]
+    public void AsyncFormValidation_UnrelatedCancellation_ReturnsFalseAndMarksFormFaulted()
+    {
+        var appElement = Browser.MountTestComponent<UnrelatedCancellationAsyncValidationComponent>();
+
+        appElement.FindElement(By.Id("start-unrelated-cancellation-validation")).Click();
+
+        Browser.Exists(By.Id("unrelated-cancellation-validator-started"));
+        Browser.Exists(By.Id("unrelated-cancellation-validation-pending"));
+        Browser.Equal("False", () => appElement.FindElement(By.Id("unrelated-cancellation-validation-faulted")).Text);
+
+        appElement.FindElement(By.Id("trigger-unrelated-cancellation")).Click();
+
+        Browser.Exists(By.Id("unrelated-cancellation-observed"));
+        Browser.Equal("False", () => appElement.FindElement(By.Id("unrelated-cancellation-validation-result")).Text);
+        Browser.DoesNotExist(By.Id("unrelated-cancellation-validation-pending"));
+        Browser.Equal("True", () => appElement.FindElement(By.Id("unrelated-cancellation-validation-faulted")).Text);
+    }
+
+    [Fact]
+    public void AsyncFormValidation_SuccessfulRetryClearsPriorFaultAndInvokesValidSubmit()
+    {
+        var appElement = Browser.MountTestComponent<RetryAfterFaultAsyncValidationComponent>();
+
+        appElement.FindElement(By.Id("retry-after-fault-submit")).Click();
+        Browser.Equal("1", () => appElement.FindElement(By.Id("retry-after-fault-attempt")).Text);
+        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
+        appElement.FindElement(By.Id("retry-after-fault-release")).Click();
+
+        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("retry-after-fault-callback")).Text);
+        Browser.Equal("False", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
+        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-faulted")).Text);
+
+        appElement.FindElement(By.Id("retry-after-fault-submit")).Click();
+
+        Browser.Equal("2", () => appElement.FindElement(By.Id("retry-after-fault-attempt")).Text);
+        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
+        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-faulted")).Text);
+        appElement.FindElement(By.Id("retry-after-fault-release")).Click();
+
+        Browser.Equal("OnValidSubmit", () => appElement.FindElement(By.Id("retry-after-fault-callback")).Text);
+        Browser.Equal("False", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
+        Browser.Equal("False", () => appElement.FindElement(By.Id("retry-after-fault-faulted")).Text);
     }
 
     [Fact]

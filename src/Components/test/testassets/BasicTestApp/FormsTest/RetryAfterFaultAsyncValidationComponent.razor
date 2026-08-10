@@ -1,0 +1,65 @@
+@using Microsoft.AspNetCore.Components.Forms
+@implements IDisposable
+
+<EditForm EditContext="_editContext" OnValidSubmit="HandleValidSubmit" OnInvalidSubmit="HandleInvalidSubmit">
+    <button id="retry-after-fault-submit" type="submit">Submit</button>
+</EditForm>
+
+<button id="retry-after-fault-release" type="button" @onclick="@(() => _currentGate?.TrySetResult())">Release validation</button>
+
+<span id="retry-after-fault-attempt">@_attempt</span>
+<span id="retry-after-fault-pending">@_editContext.IsValidationPending()</span>
+<span id="retry-after-fault-faulted">@_editContext.IsValidationFaulted()</span>
+
+@if (_lastCallback is not null)
+{
+    <span id="retry-after-fault-callback">@_lastCallback</span>
+}
+
+@code {
+    private readonly EditContext _editContext = new(new Model());
+    private TaskCompletionSource _currentGate;
+    private int _attempt;
+    private string _lastCallback;
+
+    protected override void OnInitialized()
+    {
+        _editContext.OnValidationRequested += HandleValidationRequested;
+        _editContext.OnValidationStateChanged += HandleValidationStateChanged;
+    }
+
+    private void HandleValidationRequested(object sender, ValidationRequestedEventArgs eventArgs)
+    {
+        _attempt++;
+        _currentGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = _currentGate;
+        var shouldFault = _attempt == 1;
+        eventArgs.AddAsyncValidator(cancellationToken => ValidateAsync(gate, shouldFault, cancellationToken));
+    }
+
+    private static async Task ValidateAsync(TaskCompletionSource gate, bool shouldFault, CancellationToken cancellationToken)
+    {
+        await gate.Task.WaitAsync(cancellationToken);
+
+        if (shouldFault)
+        {
+            throw new InvalidOperationException("Simulated validation service failure");
+        }
+    }
+
+    private void HandleValidSubmit() => _lastCallback = "OnValidSubmit";
+
+    private void HandleInvalidSubmit() => _lastCallback = "OnInvalidSubmit";
+
+    private void HandleValidationStateChanged(object sender, ValidationStateChangedEventArgs eventArgs)
+        => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        _currentGate?.TrySetCanceled();
+        _editContext.OnValidationRequested -= HandleValidationRequested;
+        _editContext.OnValidationStateChanged -= HandleValidationStateChanged;
+    }
+
+    private sealed class Model;
+}

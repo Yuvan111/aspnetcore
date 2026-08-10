@@ -1,0 +1,87 @@
+@using Microsoft.AspNetCore.Components.Forms
+@implements IDisposable
+
+<button id="start-unrelated-cancellation-validation" type="button" @onclick="StartValidationAsync">Start validation</button>
+<button id="trigger-unrelated-cancellation" type="button" @onclick="TriggerInternalCancellation">Trigger internal timeout</button>
+
+@if (_validatorStarted)
+{
+    <span id="unrelated-cancellation-validator-started">started</span>
+}
+
+@if (_editContext.IsValidationPending())
+{
+    <span id="unrelated-cancellation-validation-pending">pending</span>
+}
+
+@if (_internalCancellationObserved)
+{
+    <span id="unrelated-cancellation-observed">observed</span>
+}
+
+@if (_validationResult is not null)
+{
+    <span id="unrelated-cancellation-validation-result">@_validationResult</span>
+}
+
+<span id="unrelated-cancellation-validation-faulted">@_editContext.IsValidationFaulted()</span>
+
+@code {
+    private readonly EditContext _editContext = new(new Model());
+    private CancellationTokenSource _internalCancellationSource;
+    private bool _validatorStarted;
+    private bool _internalCancellationObserved;
+    private bool? _validationResult;
+
+    protected override void OnInitialized()
+    {
+        _editContext.OnValidationRequested += HandleValidationRequested;
+        _editContext.OnValidationStateChanged += HandleValidationStateChanged;
+    }
+
+    private void HandleValidationRequested(object sender, ValidationRequestedEventArgs eventArgs)
+        => eventArgs.AddAsyncValidator(WaitForInternalCancellationAsync);
+
+    private async Task WaitForInternalCancellationAsync(CancellationToken cancellationToken)
+    {
+        _internalCancellationSource = new CancellationTokenSource();
+        _validatorStarted = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await Task.Delay(Timeout.Infinite, _internalCancellationSource.Token);
+        }
+        catch (OperationCanceledException) when (_internalCancellationSource.IsCancellationRequested)
+        {
+            _internalCancellationObserved = true;
+            await InvokeAsync(StateHasChanged);
+            throw;
+        }
+    }
+
+    private async Task StartValidationAsync()
+    {
+        _internalCancellationSource?.Dispose();
+        _internalCancellationSource = null;
+        _validatorStarted = false;
+        _internalCancellationObserved = false;
+        _validationResult = null;
+        _validationResult = await _editContext.ValidateAsync();
+    }
+
+    private void TriggerInternalCancellation() => _internalCancellationSource.Cancel();
+
+    private void HandleValidationStateChanged(object sender, ValidationStateChangedEventArgs eventArgs)
+        => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        _internalCancellationSource?.Cancel();
+        _internalCancellationSource?.Dispose();
+        _editContext.OnValidationRequested -= HandleValidationRequested;
+        _editContext.OnValidationStateChanged -= HandleValidationStateChanged;
+    }
+
+    private sealed class Model;
+}

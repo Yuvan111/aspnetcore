@@ -1,4 +1,5 @@
-﻿@using System.Threading
+﻿@using System.Net.Http
+@using System.Threading
 @using Microsoft.AspNetCore.Components.Forms
 @implements IDisposable
 
@@ -26,11 +27,12 @@
         }
         else
         {
-            @foreach (var message in _editContext.GetValidationMessages(_editContext.Field(nameof(TestModel.Username))))
-            {
-                <span class="username-message">@message</span>
-            }
+            <ValidationMessage For="@(() => _model.Username)" class="username-message" />
         }
+    </div>
+
+    <div id="validation-summary">
+        <ValidationSummary />
     </div>
 
     <button type="submit" id="submit" disabled="@_editContext.IsValidationPending()">Submit</button>
@@ -47,6 +49,11 @@
     }
 </div>
 
+@if (_fieldCancellationObserved)
+{
+    <span id="field-cancellation-observed">field-cancellation-observed</span>
+}
+
 <p>
     <button type="button" id="release-field" @onclick="@(() => _fieldGate.TrySetResult())">Release field</button>
     <button type="button" id="release-form" @onclick="@(() => _formGate.TrySetResult())">Release form</button>
@@ -56,6 +63,8 @@
 {
     <span id="last-callback">@_lastCallback</span>
 }
+<span id="valid-submit-count">@_validSubmitCount</span>
+<span id="invalid-submit-count">@_invalidSubmitCount</span>
 
 @code {
     private readonly TestModel _model = new();
@@ -64,6 +73,9 @@
     private readonly TaskCompletionSource _fieldGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _formGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string _lastCallback;
+    private int _validSubmitCount;
+    private int _invalidSubmitCount;
+    private bool _fieldCancellationObserved;
 
     protected override void OnInitialized()
     {
@@ -87,8 +99,17 @@
         var field = _editContext.Field(nameof(TestModel.Username));
         _messages.Clear(field);
 
-        // Block until the test releases the gate (or this validation is superseded/cancelled).
-        await _fieldGate.Task.WaitAsync(token);
+        try
+        {
+            // Block until the test releases the gate (or this validation is superseded/cancelled).
+            await _fieldGate.Task.WaitAsync(token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            _fieldCancellationObserved = true;
+            await InvokeAsync(StateHasChanged);
+            throw;
+        }
 
         if (string.Equals(_model.Username, "error", StringComparison.Ordinal))
         {
@@ -118,15 +139,28 @@
             _messages.Add(field, "Username is reserved");
         }
 
+        if (string.Equals(_model.Username, "form-error", StringComparison.Ordinal))
+        {
+            throw new HttpRequestException("simulated 500");
+        }
+
         _editContext.NotifyValidationStateChanged();
     }
 
     private void OnValidationStateChanged(object sender, ValidationStateChangedEventArgs e)
         => InvokeAsync(StateHasChanged);
 
-    private void HandleValidSubmit() => _lastCallback = "OnValidSubmit";
+    private void HandleValidSubmit()
+    {
+        _validSubmitCount++;
+        _lastCallback = "OnValidSubmit";
+    }
 
-    private void HandleInvalidSubmit() => _lastCallback = "OnInvalidSubmit";
+    private void HandleInvalidSubmit()
+    {
+        _invalidSubmitCount++;
+        _lastCallback = "OnInvalidSubmit";
+    }
 
     public void Dispose()
     {
