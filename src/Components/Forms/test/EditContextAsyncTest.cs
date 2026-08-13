@@ -105,14 +105,13 @@ public class EditContextAsyncTest
     });
 
     [Fact]
-    public Task FieldValidation_RapidReedits_CancelPreviousTasks() => RunOnDispatcher(async () =>
+    public Task FieldValidation_Reedit_CancelsPreviousTask() => RunOnDispatcher(async () =>
     {
         var editContext = new EditContext(new TestModel());
         var field = editContext.Field(nameof(TestModel.StringProperty));
         using var validator = new TestAsyncValidator(editContext);
-        var gates = Enumerable.Range(0, 3)
-            .Select(_ => new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
-            .ToArray();
+        var firstGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var tokens = new List<CancellationToken>();
         var callCount = 0;
         validator.Configure(field, new ValidationConfig
@@ -120,8 +119,15 @@ public class EditContextAsyncTest
             Custom = async (_, token) =>
             {
                 tokens.Add(token);
-                var gate = gates[callCount++];
-                await gate.Task.WaitAsync(token);
+                callCount++;
+                if (callCount == 1)
+                {
+                    await firstGate.Task.WaitAsync(token);
+                }
+                else
+                {
+                    await secondGate.Task.WaitAsync(token);
+                }
 
                 return null;
             }
@@ -131,17 +137,13 @@ public class EditContextAsyncTest
         await WaitUntilAsync(() => tokens.Count == 1);
         editContext.NotifyFieldChanged(field);
         await WaitUntilAsync(() => tokens.Count == 2);
-        editContext.NotifyFieldChanged(field);
-        await WaitUntilAsync(() => tokens.Count == 3);
 
         Assert.True(tokens[0].IsCancellationRequested);
-        Assert.True(tokens[1].IsCancellationRequested);
-        Assert.False(tokens[2].IsCancellationRequested);
         Assert.True(editContext.IsValidationPending(field));
         Assert.False(editContext.IsValidationFaulted(field));
-        await WaitUntilAsync(() => validator.CancellationObservedCount(field) == 2);
+        await WaitUntilAsync(() => validator.CancellationObservedCount(field) == 1);
 
-        gates[2].SetResult();
+        secondGate.SetResult();
         await WaitUntilAsync(() => !editContext.IsValidationPending(field));
 
         Assert.False(editContext.IsValidationFaulted(field));

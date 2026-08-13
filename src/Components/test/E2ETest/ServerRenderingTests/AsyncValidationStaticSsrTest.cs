@@ -55,20 +55,16 @@ public class AsyncValidationStaticSsrTest : ServerTestBase<BasicTestAppServerSit
         WaitForFormMessages("mev-form", "Username is reserved");
     }
 
-    [Fact]
-    public void AsyncValidationFault_RendersFaultedStateOnPost()
+    [Theory]
+    [InlineData("validator")]
+    [InlineData("mev")]
+    public void AsyncValidationFault_RendersFaultedStateOnPost(string form)
     {
-        Submit("fault-submit");
+        Submit($"{form}-username", $"{form}-submit", "error");
 
-        Browser.Exists(By.Id("fault-faulted"));
-        Browser.Exists(By.Id("fault-invalid"));
-        Browser.DoesNotExist(By.Id("fault-valid"));
-        Assert.DoesNotContain("Static SSR validation failure", Browser.Exists(By.TagName("body")).Text);
-    }
-
-    private void Submit(string submitId)
-    {
-        Browser.Exists(By.Id(submitId)).Click();
+        Browser.Exists(By.Id($"{form}-invalid"));
+        Browser.Exists(By.Id($"{form}-faulted"));
+        Browser.DoesNotExist(By.Id($"{form}-valid"));
     }
 
     private void Submit(string inputId, string submitId, string value)

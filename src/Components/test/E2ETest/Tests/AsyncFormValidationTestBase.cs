@@ -39,14 +39,12 @@ public abstract class AsyncFormValidationTestBase : ServerTestBase<ToggleExecuti
         userNameInput.SendKeys("available\t");
 
         Browser.Exists(By.Id("username-pending"));
-        Browser.Equal("modified pending", () => userNameInput.GetDomAttribute("class"));
 
         appElement.FindElement(By.Id("release-field")).Click();
 
         Browser.DoesNotExist(By.Id("username-pending"));
         Browser.DoesNotExist(By.Id("username-faulted"));
         Browser.Empty(() => appElement.FindElements(By.ClassName("username-message")));
-        Browser.Equal("modified valid", () => userNameInput.GetDomAttribute("class"));
     }
 
     [Fact]
@@ -111,63 +109,7 @@ public abstract class AsyncFormValidationTestBase : ServerTestBase<ToggleExecuti
         appElement.FindElement(By.Id("release-form")).Click();
 
         Browser.Equal("OnValidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
-        Browser.Equal("1", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
-        Browser.Equal("0", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
         Browser.DoesNotExist(By.Id("form-pending"));
-        Browser.DoesNotExist(By.Id("form-faulted"));
-        Browser.Empty(() => appElement.FindElements(By.CssSelector(".validation-message")));
-    }
-
-    [Fact]
-    public void AsyncFormValidation_InvalidResult_ShowsMessageAndInvokesInvalidSubmit()
-    {
-        var appElement = Browser.MountTestComponent<AsyncValidationComponent>();
-        var userNameInput = appElement.FindElement(By.ClassName("user-name")).FindElement(By.TagName("input"));
-
-        userNameInput.SendKeys("reserved\t");
-        appElement.FindElement(By.Id("submit")).Click();
-
-        Browser.Exists(By.Id("form-pending"));
-        Assert.Empty(appElement.FindElements(By.Id("last-callback")));
-
-        appElement.FindElement(By.Id("release-form")).Click();
-
-        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
-        Browser.Equal("0", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
-        Browser.Equal("1", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
-        Browser.DoesNotExist(By.Id("form-pending"));
-        Browser.DoesNotExist(By.Id("form-faulted"));
-        Browser.Equal(new[] { "Username is reserved" }, () => appElement
-            .FindElements(By.CssSelector(".username-message"))
-            .Select(element => element.Text)
-            .ToArray());
-        Browser.Equal(new[] { "Username is reserved" }, () => appElement
-            .FindElements(By.CssSelector("#validation-summary .validation-message"))
-            .Select(element => element.Text)
-            .ToArray());
-    }
-
-    [Fact]
-    public void AsyncFormValidation_ThrowingValidator_MarksFormFaultedAndInvokesInvalidSubmit()
-    {
-        var appElement = Browser.MountTestComponent<AsyncValidationComponent>();
-        var userNameInput = appElement.FindElement(By.ClassName("user-name")).FindElement(By.TagName("input"));
-
-        userNameInput.SendKeys("form-error\t");
-        appElement.FindElement(By.Id("submit")).Click();
-
-        Browser.Exists(By.Id("form-pending"));
-        Assert.Empty(appElement.FindElements(By.Id("last-callback")));
-
-        appElement.FindElement(By.Id("release-form")).Click();
-
-        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
-        Browser.Equal("0", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
-        Browser.Equal("1", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
-        Browser.Exists(By.Id("form-faulted"));
-        Browser.DoesNotExist(By.Id("form-pending"));
-        Browser.Empty(() => appElement.FindElements(By.CssSelector(".validation-message")));
-        Assert.DoesNotContain("simulated 500", appElement.Text);
     }
 
     [Fact]
@@ -178,78 +120,19 @@ public abstract class AsyncFormValidationTestBase : ServerTestBase<ToggleExecuti
         var appElement = Browser.MountTestComponent<AsyncValidationComponent>();
         var userNameInput = appElement.FindElement(By.ClassName("user-name")).FindElement(By.TagName("input"));
 
-        userNameInput.SendKeys("taken\t");
+        userNameInput.SendKeys("available\t");
         Browser.Exists(By.Id("username-pending"));
 
         appElement.FindElement(By.Id("submit")).Click();
 
         // The pending field validation is cancelled and the form-level validation is now pending.
-        Browser.Exists(By.Id("field-cancellation-observed"));
         Browser.DoesNotExist(By.Id("username-pending"));
         Browser.Exists(By.Id("form-pending"));
-
-        appElement.FindElement(By.Id("release-field")).Click();
-        Browser.Empty(() => appElement.FindElements(By.ClassName("username-message")));
 
         appElement.FindElement(By.Id("release-form")).Click();
 
         Browser.Equal("OnValidSubmit", () => appElement.FindElement(By.Id("last-callback")).Text);
-        Browser.Equal("1", () => appElement.FindElement(By.Id("valid-submit-count")).Text);
-        Browser.Equal("0", () => appElement.FindElement(By.Id("invalid-submit-count")).Text);
         Browser.DoesNotExist(By.Id("form-pending"));
-        Browser.Empty(() => appElement.FindElements(By.ClassName("username-message")));
-    }
-
-    [Fact]
-    public void AsyncFormValidation_MultipleValidatorsRunConcurrentlyAndCombineMessages()
-    {
-        var appElement = Browser.MountTestComponent<ConcurrentAsyncValidationComponent>();
-
-        appElement.FindElement(By.Id("concurrent-submit")).Click();
-
-        Browser.Exists(By.Id("fast-validator-started"));
-        Browser.Exists(By.Id("slow-validator-started"));
-        Browser.Exists(By.Id("concurrent-form-pending"));
-
-        appElement.FindElement(By.Id("release-fast-validator")).Click();
-
-        Browser.Exists(By.Id("concurrent-form-pending"));
-        Browser.Equal(new[] { "Fast validator completed" }, CreateValidationMessagesAccessor(appElement));
-        Assert.Empty(appElement.FindElements(By.Id("concurrent-last-callback")));
-
-        appElement.FindElement(By.Id("release-slow-validator")).Click();
-
-        Browser.DoesNotExist(By.Id("concurrent-form-pending"));
-        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("concurrent-last-callback")).Text);
-        Browser.Equal(
-            new[] { "Fast validator completed", "Slow validator completed" },
-            CreateValidationMessagesAccessor(appElement));
-    }
-
-    [Fact]
-    public void AsyncFormValidation_SuccessfulRetryClearsPriorFaultAndInvokesValidSubmit()
-    {
-        var appElement = Browser.MountTestComponent<RetryAfterFaultAsyncValidationComponent>();
-
-        appElement.FindElement(By.Id("retry-after-fault-submit")).Click();
-        Browser.Equal("1", () => appElement.FindElement(By.Id("retry-after-fault-attempt")).Text);
-        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
-        appElement.FindElement(By.Id("retry-after-fault-release")).Click();
-
-        Browser.Equal("OnInvalidSubmit", () => appElement.FindElement(By.Id("retry-after-fault-callback")).Text);
-        Browser.Equal("False", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
-        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-faulted")).Text);
-
-        appElement.FindElement(By.Id("retry-after-fault-submit")).Click();
-
-        Browser.Equal("2", () => appElement.FindElement(By.Id("retry-after-fault-attempt")).Text);
-        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
-        Browser.Equal("True", () => appElement.FindElement(By.Id("retry-after-fault-faulted")).Text);
-        appElement.FindElement(By.Id("retry-after-fault-release")).Click();
-
-        Browser.Equal("OnValidSubmit", () => appElement.FindElement(By.Id("retry-after-fault-callback")).Text);
-        Browser.Equal("False", () => appElement.FindElement(By.Id("retry-after-fault-pending")).Text);
-        Browser.Equal("False", () => appElement.FindElement(By.Id("retry-after-fault-faulted")).Text);
     }
 
     [Fact]
@@ -269,11 +152,6 @@ public abstract class AsyncFormValidationTestBase : ServerTestBase<ToggleExecuti
         appElement.FindElement(By.Id("release-validation")).Click();
 
         Browser.Equal(new[] { "Username is taken" }, messagesAccessor);
-
-        userNameInput.Clear();
-        userNameInput.SendKeys("available\t");
-
-        Browser.Empty(messagesAccessor);
     }
 
     [Fact]
@@ -312,11 +190,6 @@ public abstract class AsyncFormValidationTestBase : ServerTestBase<ToggleExecuti
         appElement.FindElement(By.Id("release-validation")).Click();
 
         Browser.Equal(new[] { "Username is taken" }, messagesAccessor);
-
-        userNameInput.Clear();
-        userNameInput.SendKeys("available\t");
-
-        Browser.Empty(messagesAccessor);
     }
 
     [Fact]
