@@ -14,12 +14,14 @@ internal sealed class RemoteJSDataStream : Stream
     private readonly int _chunkSize;
     private readonly TimeSpan _jsInteropDefaultCallTimeout;
     private readonly CancellationToken _streamCancellationToken;
+    private readonly IJSStreamReference _jsStreamReference;
     private readonly Stream _pipeReaderStream;
     private readonly Pipe _pipe;
     private long _bytesRead;
     private long _expectedChunkId;
     private DateTimeOffset _lastDataReceivedTime;
     private bool _disposed;
+    private bool _jsStreamReferenceDisposed;
 
     public static async Task<bool> ReceiveData(RemoteJSRuntime runtime, long streamId, long chunkId, byte[] chunk, string error)
     {
@@ -50,13 +52,14 @@ internal sealed class RemoteJSDataStream : Stream
             throw new ArgumentException($"SignalR MaximumIncomingBytes must be at least 1 kb.");
 
         var streamId = runtime.RemoteJSDataStreamNextInstanceId++;
-        var remoteJSDataStream = new RemoteJSDataStream(runtime, streamId, totalLength, chunkSize, jsInteropDefaultCallTimeout, cancellationToken);
+        var remoteJSDataStream = new RemoteJSDataStream(runtime, jsStreamReference, streamId, totalLength, chunkSize, jsInteropDefaultCallTimeout, cancellationToken);
         await runtime.InvokeVoidAsync("Blazor._internal.sendJSDataStream", jsStreamReference, streamId, chunkSize);
         return remoteJSDataStream;
     }
 
     private RemoteJSDataStream(
         RemoteJSRuntime runtime,
+        IJSStreamReference jsStreamReference,
         long streamId,
         long totalLength,
         int chunkSize,
@@ -64,6 +67,7 @@ internal sealed class RemoteJSDataStream : Stream
         CancellationToken cancellationToken)
     {
         _runtime = runtime;
+        _jsStreamReference = jsStreamReference;
         _streamId = streamId;
         _totalLength = totalLength;
         _chunkSize = chunkSize;
@@ -222,12 +226,52 @@ internal sealed class RemoteJSDataStream : Stream
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (_disposed)
         {
-            _runtime.RemoteJSDataStreamInstances.Remove(_streamId);
+            return;
         }
 
         _disposed = true;
+
+        if (disposing)
+        {
+            _runtime.RemoteJSDataStreamInstances.Remove(_streamId);
+            _ = DisposeJSStreamReferenceAsync().Preserve();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _runtime.RemoteJSDataStreamInstances.Remove(_streamId);
+
+        try
+        {
+            await DisposeJSStreamReferenceAsync();
+        }
+        finally
+        {
+            base.Dispose(disposing: true);
+            GC.SuppressFinalize(this);
+        }
+    }
+
+    private async ValueTask DisposeJSStreamReferenceAsync()
+    {
+        if (_jsStreamReferenceDisposed)
+        {
+            return;
+        }
+
+        _jsStreamReferenceDisposed = true;
+        await _jsStreamReference.DisposeAsync();
     }
 
     // A helper for creating and disposing linked CancellationTokenSources

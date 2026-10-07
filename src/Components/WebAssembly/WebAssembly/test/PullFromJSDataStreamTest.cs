@@ -101,6 +101,73 @@ public class PullFromJSDataStreamTest
         Assert.Equal("Failed to read the requested number of bytes from the stream.", ex.Message);
     }
 
+    [Fact]
+    public void Dispose_DisposesJSStreamReference()
+    {
+        var jsStreamReference = new Mock<IJSStreamReference>();
+        var pullFromJSDataStream = PullFromJSDataStream.CreateJSDataStream(
+            new TestJSRuntime(Data),
+            jsStreamReference.Object,
+            totalLength: Data.Length,
+            cancellationToken: CancellationToken.None);
+
+        pullFromJSDataStream.Dispose();
+        pullFromJSDataStream.Dispose();
+
+        jsStreamReference.Verify(reference => reference.DisposeAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_AwaitsOwnedJSStreamReferenceDisposal()
+    {
+        var jsStreamReference = new Mock<IJSStreamReference>();
+        var disposalCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        jsStreamReference
+            .Setup(reference => reference.DisposeAsync())
+            .Returns(new ValueTask(disposalCompletion.Task));
+        var pullFromJSDataStream = PullFromJSDataStream.CreateJSDataStream(
+            new TestJSRuntime(Data),
+            jsStreamReference.Object,
+            totalLength: Data.Length,
+            cancellationToken: CancellationToken.None);
+
+        var disposal = pullFromJSDataStream.DisposeAsync();
+
+        Assert.False(disposal.IsCompleted);
+        disposalCompletion.SetResult();
+        await disposal;
+        jsStreamReference.Verify(reference => reference.DisposeAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReadAsync_AfterPartialStreamIsDisposedThrows()
+    {
+        var pullFromJSDataStream = CreateJSDataStream(Data);
+        var buffer = new byte[1];
+        await pullFromJSDataStream.ReadAsync(buffer);
+
+        pullFromJSDataStream.Dispose();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await pullFromJSDataStream.ReadAsync(buffer));
+    }
+
+    [Fact]
+    public async Task ReceiveData_ReachingEndOfStreamDisposesJSStreamReference()
+    {
+        var jsStreamReference = new Mock<IJSStreamReference>();
+        var pullFromJSDataStream = PullFromJSDataStream.CreateJSDataStream(
+            new TestJSRuntime(Data),
+            jsStreamReference.Object,
+            totalLength: Data.Length,
+            cancellationToken: CancellationToken.None);
+
+        using var destination = new MemoryStream();
+        await pullFromJSDataStream.CopyToAsync(destination);
+
+        Assert.Equal(0, await pullFromJSDataStream.ReadAsync(new byte[1]));
+        jsStreamReference.Verify(reference => reference.DisposeAsync(), Times.Once);
+    }
+
     private static PullFromJSDataStream CreateJSDataStream(byte[] data, IJSRuntime runtime = null)
     {
         runtime ??= new TestJSRuntime(data);

@@ -53,6 +53,17 @@ public class JSObjectReferenceTest
     }
 
     [Fact]
+    public async Task JSStreamReference_Dispose_DisallowsOpeningAnotherStream()
+    {
+        var jsRuntime = new TestJSRuntime();
+        IJSStreamReference jsStreamReference = new JSStreamReference(jsRuntime, id: 0, totalLength: 1);
+
+        _ = jsStreamReference.DisposeAsync();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(async () => await jsStreamReference.OpenReadStreamAsync());
+    }
+
+    [Fact]
     public void JSInProcessObjectReference_Dispose_DisallowsFurtherInteropCalls()
     {
         // Arrange

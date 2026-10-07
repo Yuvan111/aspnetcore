@@ -16,6 +16,8 @@ internal sealed class PullFromJSDataStream : Stream
     private readonly long _totalLength;
     private readonly CancellationToken _streamCancellationToken;
     private long _offset;
+    private bool _isDisposed;
+    private bool _isJSStreamReferenceDisposed;
 
     public static PullFromJSDataStream CreateJSDataStream(
         IJSRuntime runtime,
@@ -78,6 +80,13 @@ internal sealed class PullFromJSDataStream : Stream
 
     public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
     {
+        if (_offset == _totalLength)
+        {
+            return 0;
+        }
+
+        ObjectDisposedException.ThrowIf(_isDisposed, this);
+
         var bytesRead = await RequestDataFromJSAsync(buffer.Length);
         ThrowIfCancellationRequested(cancellationToken);
         bytesRead.CopyTo(buffer);
@@ -109,5 +118,53 @@ internal sealed class PullFromJSDataStream : Stream
             Dispose(true);
         }
         return bytesRead;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+
+        if (disposing)
+        {
+            _ = DisposeJSStreamReferenceAsync().Preserve();
+        }
+
+        base.Dispose(disposing);
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        if (_isDisposed)
+        {
+            return;
+        }
+
+        _isDisposed = true;
+
+        try
+        {
+            await DisposeJSStreamReferenceAsync();
+        }
+        finally
+        {
+            base.Dispose(disposing: true);
+            GC.SuppressFinalize(this);
+        }
+    }
+
+    private async ValueTask DisposeJSStreamReferenceAsync()
+    {
+        if (_isJSStreamReferenceDisposed)
+        {
+            return;
+        }
+
+        _isJSStreamReferenceDisposed = true;
+        await _jsStreamReference.DisposeAsync();
     }
 }

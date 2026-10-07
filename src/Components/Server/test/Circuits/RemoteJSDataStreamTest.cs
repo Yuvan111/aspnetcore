@@ -28,6 +28,43 @@ public class RemoteJSDataStreamTest
     }
 
     [Fact]
+    public async Task Dispose_DisposesJSStreamReference()
+    {
+        var jsStreamReference = new Mock<IJSStreamReference>();
+        var remoteJSDataStream = await RemoteJSDataStream.CreateRemoteJSDataStreamAsync(
+            _jsRuntime,
+            jsStreamReference.Object,
+            totalLength: 100,
+            signalRMaximumIncomingBytes: 10_000,
+            jsInteropDefaultCallTimeout: TimeSpan.FromMinutes(1),
+            cancellationToken: CancellationToken.None);
+
+        remoteJSDataStream.Dispose();
+        remoteJSDataStream.Dispose();
+
+        jsStreamReference.Verify(reference => reference.DisposeAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReceiveData_ReachingEndOfStreamDisposesJSStreamReference()
+    {
+        var jsRuntime = new TestRemoteJSRuntime(Options.Create(new CircuitOptions()), Options.Create(new HubOptions<ComponentHub>()), Mock.Of<ILogger<RemoteJSRuntime>>());
+        var jsStreamReference = new Mock<IJSStreamReference>();
+        var remoteJSDataStream = await RemoteJSDataStream.CreateRemoteJSDataStreamAsync(
+            jsRuntime,
+            jsStreamReference.Object,
+            totalLength: 3,
+            signalRMaximumIncomingBytes: 10_000,
+            jsInteropDefaultCallTimeout: TimeSpan.FromMinutes(1),
+            cancellationToken: CancellationToken.None);
+        var streamId = GetStreamId(remoteJSDataStream, jsRuntime);
+
+        Assert.True(await RemoteJSDataStream.ReceiveData(jsRuntime, streamId, chunkId: 0, new byte[] { 1, 2, 3 }, error: null));
+
+        jsStreamReference.Verify(reference => reference.DisposeAsync(), Times.Once);
+    }
+
+    [Fact]
     public async Task ReceiveData_DoesNotFindStream()
     {
         // Arrange

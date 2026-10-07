@@ -116,7 +116,8 @@ async function invokeDotNetInteropMethodsAsync(shouldSupportSyncInterop, dotNetO
   const jsStreamReference = DotNet.createJSStreamReference(largeByteArray);
   results['jsToDotNetStreamParameterAsync'] = await DotNet.invokeMethodAsync(assemblyName, 'JSToDotNetStreamParameterAsync', jsStreamReference);
 
-  var streamWrapper = { 'strVal': "SomeStr", 'jsStreamReferenceVal': jsStreamReference, 'intVal': 5 };
+  const wrappedJSStreamReference = DotNet.createJSStreamReference(largeByteArray);
+  var streamWrapper = { 'strVal': "SomeStr", 'jsStreamReferenceVal': wrappedJSStreamReference, 'intVal': 5 };
   results['jsToDotNetStreamWrapperObjectParameterAsync'] = await DotNet.invokeMethodAsync(assemblyName, 'JSToDotNetStreamWrapperObjectParameterAsync', streamWrapper);
 
   var streamRef = await DotNet.invokeMethodAsync(assemblyName, 'GetDotNetStreamReferenceAsync');

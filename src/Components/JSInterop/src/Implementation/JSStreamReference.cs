@@ -33,6 +33,8 @@ public sealed class JSStreamReference : JSObjectReference, IJSStreamReference
     /// <inheritdoc />
     async ValueTask<Stream> IJSStreamReference.OpenReadStreamAsync(long maxAllowedSize, CancellationToken cancellationToken)
     {
+        ThrowIfDisposed();
+
         if (Length > maxAllowedSize)
         {
             throw new ArgumentOutOfRangeException(nameof(maxAllowedSize), $"The incoming data stream of length {Length} exceeds the maximum allowed length {maxAllowedSize}.");
