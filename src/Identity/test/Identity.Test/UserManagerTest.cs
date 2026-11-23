@@ -1390,7 +1390,7 @@ public class UserManagerTest
     }
 
     [Fact]
-    public async Task ResetTokenCallNoopForTokenValueZero()
+    public async Task ResetAccessFailedCountCallsStoreWhenCountIsZero()
     {
         var user = new PocoUser() { UserName = Guid.NewGuid().ToString() };
         var store = new Mock<IUserLockoutStore<PocoUser>>();
@@ -1400,7 +1400,7 @@ public class UserManagerTest
            });
         var manager = MockHelpers.TestUserManager(store.Object);
 
-        IdentityResultAssert.IsSuccess(await manager.ResetAccessFailedCountAsync(user));
+        await Assert.ThrowsAsync<Exception>(async () => await manager.ResetAccessFailedCountAsync(user));
     }
 
     [Fact]

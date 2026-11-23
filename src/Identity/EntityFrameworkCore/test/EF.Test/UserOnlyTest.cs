@@ -61,6 +61,40 @@ public class UserOnlyTest : IClassFixture<ScratchDatabaseFixture>
     }
 
     [ConditionalFact]
+    public async Task ConcurrentAccessFailuresArePersisted()
+    {
+        var scopeFactory = _builder.ApplicationServices.GetRequiredService<IServiceScopeFactory>();
+        var user = new IdentityUser { UserName = Guid.NewGuid().ToString(), LockoutEnabled = true };
+        using (var scope = scopeFactory.CreateScope())
+        {
+            var manager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            IdentityResultAssert.IsSuccess(await manager.CreateAsync(user));
+        }
+
+        using (var scope1 = scopeFactory.CreateScope())
+        using (var scope2 = scopeFactory.CreateScope())
+        {
+            var manager1 = scope1.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            var manager2 = scope2.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            var user1 = await manager1.FindByIdAsync(user.Id);
+            var user2 = await manager2.FindByIdAsync(user.Id);
+            Assert.NotNull(user1);
+            Assert.NotNull(user2);
+
+            IdentityResultAssert.IsSuccess(await manager1.AccessFailedAsync(user1));
+            IdentityResultAssert.IsSuccess(await manager2.AccessFailedAsync(user2));
+        }
+
+        using (var scope = scopeFactory.CreateScope())
+        {
+            var manager = scope.ServiceProvider.GetRequiredService<UserManager<IdentityUser>>();
+            var persistedUser = await manager.FindByIdAsync(user.Id);
+            Assert.NotNull(persistedUser);
+            Assert.Equal(2, persistedUser.AccessFailedCount);
+        }
+    }
+
+    [ConditionalFact]
     public async Task FindByEmailThrowsWithTwoUsersWithSameEmail()
     {
         var userStore = _builder.ApplicationServices.GetRequiredService<IUserStore<IdentityUser>>();

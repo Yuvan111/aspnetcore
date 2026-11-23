@@ -204,6 +204,33 @@ public class UserStore<TUser, TRole, TContext, [DynamicallyAccessedMembers(Dynam
     }
 
     /// <summary>
+    /// Records that a failed access has occurred, incrementing the failed access count.
+    /// </summary>
+    /// <param name="user">The user whose failed access count should be incremented.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> used to propagate notifications that the operation should be canceled.</param>
+    /// <returns>The <see cref="Task{TResult}"/> that represents the asynchronous operation, containing the incremented failed access count.</returns>
+    public override async Task<int> IncrementAccessFailedCountAsync(TUser user, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(user);
+
+        while (true)
+        {
+            user.AccessFailedCount++;
+            try
+            {
+                await SaveChanges(cancellationToken);
+                return user.AccessFailedCount;
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                await Context.Entry(user).ReloadAsync(cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
     /// Updates the specified <paramref name="user"/> in the user store.
     /// </summary>
     /// <param name="user">The user to update.</param>

@@ -245,6 +245,72 @@ public class UserStoreTest : IdentitySpecificationTestBase<IdentityUser, Identit
     }
 
     [ConditionalFact]
+    public async Task ConcurrentAccessFailuresArePersisted()
+    {
+        var options = new DbContextOptionsBuilder<UserStoreTestDbContext>().UseSqlite($"Data Source=D{Guid.NewGuid()}.db").Options;
+        var user = CreateTestUser(lockoutEnabled: true);
+        using (var db = new UserStoreTestDbContext(options))
+        {
+            db.Database.EnsureCreated();
+
+            var manager = CreateManager(db, configureServices: services => services.Configure<IdentityOptions>(identityOptions =>
+                identityOptions.Lockout.MaxFailedAccessAttempts = 2));
+            IdentityResultAssert.IsSuccess(await manager.CreateAsync(user));
+        }
+        using (var db = new UserStoreTestDbContext(options))
+        using (var db2 = new UserStoreTestDbContext(options))
+        {
+            var manager1 = CreateManager(db, configureServices: services => services.Configure<IdentityOptions>(identityOptions =>
+                identityOptions.Lockout.MaxFailedAccessAttempts = 2));
+            var manager2 = CreateManager(db2, configureServices: services => services.Configure<IdentityOptions>(identityOptions =>
+                identityOptions.Lockout.MaxFailedAccessAttempts = 2));
+            var user1 = await manager1.FindByIdAsync(user.Id);
+            var user2 = await manager2.FindByIdAsync(user.Id);
+            Assert.NotNull(user1);
+            Assert.NotNull(user2);
+
+            IdentityResultAssert.IsSuccess(await manager1.AccessFailedAsync(user1));
+            IdentityResultAssert.IsSuccess(await manager2.AccessFailedAsync(user2));
+
+            using var persistedContext = new UserStoreTestDbContext(options);
+            var persistedUser = await persistedContext.Users.SingleAsync(u => u.Id == user.Id);
+            Assert.Equal(0, persistedUser.AccessFailedCount);
+            Assert.True(persistedUser.LockoutEnd > DateTimeOffset.UtcNow);
+
+            db.Database.EnsureDeleted();
+        }
+    }
+
+    [ConditionalFact]
+    public async Task ResetAccessFailedCountReturnsConcurrencyFailureForAStaleUser()
+    {
+        var options = new DbContextOptionsBuilder<UserStoreTestDbContext>().UseSqlite($"Data Source=D{Guid.NewGuid()}.db").Options;
+        var user = CreateTestUser(lockoutEnabled: true);
+        using (var db = new UserStoreTestDbContext(options))
+        {
+            db.Database.EnsureCreated();
+
+            var manager = CreateManager(db);
+            IdentityResultAssert.IsSuccess(await manager.CreateAsync(user));
+        }
+        using (var db = new UserStoreTestDbContext(options))
+        using (var db2 = new UserStoreTestDbContext(options))
+        {
+            var manager1 = CreateManager(db);
+            var manager2 = CreateManager(db2);
+            var user1 = await manager1.FindByIdAsync(user.Id);
+            var user2 = await manager2.FindByIdAsync(user.Id);
+            Assert.NotNull(user1);
+            Assert.NotNull(user2);
+
+            IdentityResultAssert.IsSuccess(await manager2.AccessFailedAsync(user2));
+            IdentityResultAssert.IsFailure(await manager1.ResetAccessFailedCountAsync(user1), new IdentityErrorDescriber().ConcurrencyFailure());
+
+            db.Database.EnsureDeleted();
+        }
+    }
+
+    [ConditionalFact]
     public async Task ConcurrentUpdatesWillFailWithDetachedUser()
     {
         var options = new DbContextOptionsBuilder<UserStoreTestDbContext>().UseSqlite($"Data Source=D{Guid.NewGuid()}.db").Options;

@@ -2261,10 +2261,6 @@ public class UserManager<TUser> : IDisposable where TUser : class
         var store = GetUserLockoutStore();
         ArgumentNullThrowHelper.ThrowIfNull(user);
 
-        if (await GetAccessFailedCountAsync(user).ConfigureAwait(false) == 0)
-        {
-            return IdentityResult.Success;
-        }
         await store.ResetAccessFailedCountAsync(user, CancellationToken).ConfigureAwait(false);
         return await UpdateUserAsync(user).ConfigureAwait(false);
     }
